@@ -42,6 +42,7 @@ jobs:
         uses: docker/metadata-action@v4
         with:
           images: docker.io/${{ github.repository }}
+          labels: org.opencontainers.image.version=${{ steps.gitversion.outputs.MajorMinorPatch }}
 
       - name: Build and Push Docker Image
         uses: docker/build-push-action@v4
