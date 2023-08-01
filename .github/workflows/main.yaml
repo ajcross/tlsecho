@@ -36,6 +36,13 @@ jobs:
           registry: docker.io
           username: ${{ github.repository_owner }}
           password: ${{ secrets.DOCKER_REGISTRY_TOKEN }}
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v4
+        with:
+          images: docker.io/${{ github.repository }}
+
       - name: Build and Push Docker Image
         uses: docker/build-push-action@v4
         with:
@@ -45,3 +52,4 @@ jobs:
           tags: |
             docker.io/${{ github.repository }}:latest
             docker.io/${{ github.repository }}:${{ steps.gitversion.outputs.MajorMinorPatch }}
+          labels: ${{ steps.meta.outputs.labels }}
