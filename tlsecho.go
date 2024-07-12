@@ -130,7 +130,7 @@ var fmap template.FuncMap = template.FuncMap{
 		})
 		return certPEM
 	},
-	"DidResume": func(conn tls.Conn) string {
+	"DidResume": func(conn *tls.Conn) string {
 		if conn.ConnectionState().DidResume {
 			return "true"
 		} else {
@@ -253,14 +253,14 @@ func usageAndExit(error string) {
 
 type tlsHelloMap struct {
 	addressHelloMap map[string]*tls.ClientHelloInfo
-	mutex           sync.RWMutex
+	mutex           *sync.RWMutex
 }
 
 func makeTLSHelloMap() *tlsHelloMap {
 	var mutex sync.RWMutex
 	return &tlsHelloMap{
 		make(map[string]*tls.ClientHelloInfo),
-		mutex,
+		&mutex,
 	}
 }
 func (c *tlsHelloMap) get(addr net.Addr) *tls.ClientHelloInfo {
