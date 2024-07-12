@@ -413,7 +413,7 @@ func main() {
 			http3Server := &http3.Server{
 				Addr:       addr,
 				TLSConfig:  tlsconfig,
-				QuicConfig: quicConf,
+				QUICConfig: quicConf,
 			}
 			go func() {
 				log.Printf("HTTP3 server listening on %s", addr)
