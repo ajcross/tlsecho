@@ -9,7 +9,7 @@ Supports http 1.0 to 3.0, tls up to 1.3 and regardless the name, it also support
 build with 
 
 ```
-go build -o tlsecho tlsecho.go
+go build ./cmd/tlsecho/
 ```
 
 ## Docker
