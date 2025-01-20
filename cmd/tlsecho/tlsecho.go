@@ -309,70 +309,77 @@ func (ml myListener) Accept() (net.Conn, error) {
 	return mc, e
 }
 
-func main() {
+type globalFlags struct {
+	keyFile   string
+	certFile  string
+	envre     string
+	addr      string
+	verbose   bool
+	useTLS    bool
+	cn        string
+	setCookie bool
+	useHttp3  bool
+}
+
+func parseArgs() globalFlags {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
+	var flags globalFlags
 
-	var keyFile, certFile string
-	var envre string
-	var addr string
-	var verbose bool
-	var useTLS bool
-	var cn string
-	var setCookie bool
-	var useHttp3 bool
-
-	flag.StringVar(&keyFile, "key", "", "Certificate key file")
-	flag.StringVar(&certFile, "cert", "", "Certificate file")
-	flag.StringVar(&addr, "addr", ":8443", "service address")
-	flag.BoolVar(&verbose, "verbose", true, "verbose")
-	flag.BoolVar(&verbose, "v", true, "verbose")
-	flag.BoolVar(&useTLS, "tls", true, "tls")
-	flag.StringVar(&cn, "cn", "localhost", "cn for the automatically generated certificate")
-	flag.BoolVar(&setCookie, "set-cookie", true, "set cookie")
-	flag.StringVar(&envre, "env-re", "^TLSECHO", "regexp to filter environment variables to output")
-	flag.BoolVar(&useHttp3, "http3", false, "enable http3")
+	flag.StringVar(&flags.keyFile, "key", "", "Certificate key file")
+	flag.StringVar(&flags.certFile, "cert", "", "Certificate file")
+	flag.StringVar(&flags.addr, "addr", ":8443", "service address")
+	flag.BoolVar(&flags.verbose, "verbose", true, "verbose")
+	flag.BoolVar(&flags.verbose, "v", true, "verbose")
+	flag.BoolVar(&flags.useTLS, "tls", true, "tls")
+	flag.StringVar(&flags.cn, "cn", "localhost", "cn for the automatically generated certificate")
+	flag.BoolVar(&flags.setCookie, "set-cookie", true, "set cookie")
+	flag.StringVar(&flags.envre, "env-re", "^TLSECHO", "regexp to filter environment variables to output")
+	flag.BoolVar(&flags.useHttp3, "http3", false, "enable http3")
 
 	flag.Parse()
 	if flag.NArg() != 0 {
 		usageAndExit("Extra arguments not supported")
 	}
-	if (keyFile == "") != (certFile == "") {
+	if (flags.keyFile == "") != (flags.certFile == "") {
 		usageAndExit("keyfile and certfile, set both or none")
 	}
-	if keyFile != "" && !useTLS {
+	if flags.keyFile != "" && !flags.useTLS {
 		usageAndExit("tls disabled and tls credentials set is not supported")
 	}
-	if keyFile != "" && cn != "localhost" {
+	if flags.keyFile != "" && flags.cn != "localhost" {
 		usageAndExit("you can't set both cn and certificate files")
 	}
-	if useHttp3 && !useTLS {
+	if flags.useHttp3 && !flags.useTLS {
 		usageAndExit("http3 requires tls")
 	}
+	return flags
+}
+func main() {
+	flags := parseArgs()
 
 	th := makeTLSHelloMap()
-
 	helloTemplate := getTLSHelloTemplate()
 	httpTemplate := getTemplate()
 
 	envvarsTemplate := getEnvVarTemplate()
-	envvars := getEnvVars(envre)
+	envvars := getEnvVars(flags.envre)
 	if len(envvars) > 0 {
-		templateExecute(envvarsTemplate, envvars, nil, verbose)
+		templateExecute(envvarsTemplate, envvars, nil, flags.verbose)
 	}
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if setCookie {
+		if flags.setCookie {
 			cookie := &http.Cookie{
 				Name:  "cookie",
 				Value: "Cookies are delicious delicacies",
 			}
 			http.SetCookie(w, cookie)
 		}
-		if useHttp3 {
+		if flags.useHttp3 {
 			// Set the age to just 60s, since this server is for testing
-			w.Header().Set("alt-svc", "h3=\""+addr+"\"; ma=60, h3-29=\""+addr+"\"; ma=60")
+			w.Header().Set("alt-svc", "h3=\""+flags.addr+"\"; ma=60, h3-29=\""+flags.addr+"\"; ma=60")
 		}
-		if useTLS {
+		if flags.useTLS {
 			// we set console output to false as hello messages are logged as soon as they arrive
 			var cli = th.getByAddrNet(r.RemoteAddr, r.Context().Value(http.LocalAddrContextKey).(net.Addr).Network())
 			if cli != nil {
@@ -380,71 +387,76 @@ func main() {
 			}
 		}
 		if len(envvars) > 0 {
-			templateExecute(envvarsTemplate, envvars, w, verbose)
+			templateExecute(envvarsTemplate, envvars, w, flags.verbose)
 		}
-		templateExecute(httpTemplate, r, w, verbose)
+		templateExecute(httpTemplate, r, w, flags.verbose)
 	})
 
-	if useTLS {
-		var certificate tls.Certificate
-		var err error
-		if keyFile == "" {
-			certificate, err = genX509KeyPair(cn)
-		} else {
-			certificate, err = tls.LoadX509KeyPair(certFile, keyFile)
-		}
-		if err != nil {
-			log.Fatal(err.Error())
-		}
-		var tlsconfig *tls.Config
-
-		tlsconfig = &tls.Config{
-			ClientAuth: tls.RequestClientCert,
-			GetCertificate: func(chi *tls.ClientHelloInfo) (*tls.Certificate, error) {
-			        th.set(chi.Conn.RemoteAddr(), chi)
-				// with TLS, log the hello info as soon as it arrives, just in case the connection is aborted
-				templateExecute(helloTemplate, chi, nil, verbose)
-				return &certificate, nil
-			},
-		}
-
-		if useHttp3 {
-			quicConf := &quic.Config{}
-			http3Server := &http3.Server{
-				Addr:       addr,
-				TLSConfig:  tlsconfig,
-				QUICConfig: quicConf,
-			}
-			go func() {
-				log.Printf("HTTP3 server listening on %s", addr)
-				log.Fatal(http3Server.ListenAndServe())
-			}()
-		}
-		var ml myListener
-		var l net.Listener
-		l, err = net.Listen("tcp", addr)
-
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		ml = myListener{
-			l,
-			th,
-		}
-
-		httpServer := &http.Server{
-			Addr:      addr,
-			TLSConfig: tlsconfig,
-		}
-		log.Printf("HTTP server listening on %s", addr)
-		log.Fatal(httpServer.ServeTLS(ml, "", ""))
-
+	if flags.useTLS {
+		startHttps(flags, th, helloTemplate)
 	} else {
-		httpServer := &http.Server{
-			Addr: addr,
-		}
-		log.Printf("HTTP server listening on %s", addr)
-		log.Fatal(httpServer.ListenAndServe())
+		startHttp(flags)
 	}
+}
+func startHttps(flags globalFlags, th *tlsHelloMap, helloTemplate *template.Template) {
+	var certificate tls.Certificate
+	var err error
+	if flags.keyFile == "" {
+		certificate, err = genX509KeyPair(flags.cn)
+	} else {
+		certificate, err = tls.LoadX509KeyPair(flags.certFile, flags.keyFile)
+	}
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+	var tlsconfig *tls.Config
+
+	tlsconfig = &tls.Config{
+		ClientAuth: tls.RequestClientCert,
+		GetCertificate: func(chi *tls.ClientHelloInfo) (*tls.Certificate, error) {
+			th.set(chi.Conn.RemoteAddr(), chi)
+			// with TLS, log the hello info as soon as it arrives, just in case the connection is aborted
+			templateExecute(helloTemplate, chi, nil, flags.verbose)
+			return &certificate, nil
+		},
+	}
+
+	if flags.useHttp3 {
+		quicConf := &quic.Config{}
+		http3Server := &http3.Server{
+			Addr:       flags.addr,
+			TLSConfig:  tlsconfig,
+			QUICConfig: quicConf,
+		}
+		go func() {
+			log.Printf("HTTP3 server listening on %s", flags.addr)
+			log.Fatal(http3Server.ListenAndServe())
+		}()
+	}
+	var ml myListener
+	var l net.Listener
+	l, err = net.Listen("tcp", flags.addr)
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	ml = myListener{
+		l,
+		th,
+	}
+
+	httpServer := &http.Server{
+		Addr:      flags.addr,
+		TLSConfig: tlsconfig,
+	}
+	log.Printf("HTTP server listening on %s", flags.addr)
+	log.Fatal(httpServer.ServeTLS(ml, "", ""))
+}
+func startHttp(flags globalFlags) {
+	httpServer := &http.Server{
+		Addr: flags.addr,
+	}
+	log.Printf("HTTP server listening on %s", flags.addr)
+	log.Fatal(httpServer.ListenAndServe())
 }
