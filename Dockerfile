@@ -1,4 +1,4 @@
-FROM golang as builder
+FROM golang AS builder
 WORKDIR /build
 COPY . /build
 RUN go mod tidy && CGO_ENABLED=0 go build ./cmd/tlsecho
