@@ -43,6 +43,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
+          flavor: latest=true
           images: docker.io/${{ github.repository }}
           labels: org.opencontainers.image.version=${{ steps.gitversion.outputs.MajorMinorPatch }}
 
