@@ -322,7 +322,6 @@ type globalFlags struct {
 }
 
 func parseArgs() globalFlags {
-	log.SetFlags(log.LstdFlags | log.Lshortfile)
 	var flags globalFlags
 
 	flag.StringVar(&flags.keyFile, "key", "", "Certificate key file")
@@ -355,6 +354,7 @@ func parseArgs() globalFlags {
 	return flags
 }
 func main() {
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
 	flags := parseArgs()
 
 	th := makeTLSHelloMap()
