@@ -24,7 +24,7 @@ docker.io/ajcross/tlsecho:latest
 
 ```
 # tlsecho --help
-Usage of /app/tlsecho:
+Usage of ./tlsecho:
   -addr string
     	service address (default ":8443")
   -cert string
@@ -41,9 +41,13 @@ Usage of /app/tlsecho:
     	set cookie (default true)
   -tls
     	tls (default true)
+  -tls-max string
+    	max tls version [1.1 1.2 1.3] (default "1.3")
   -v	verbose (default true)
   -verbose
     	verbose (default true)
+  -write-files
+    	write generated Certificate and Key files
 ```
 
 ## Enviroment variables and kubernetes
