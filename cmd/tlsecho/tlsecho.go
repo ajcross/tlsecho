@@ -310,19 +310,37 @@ func (ml myListener) Accept() (net.Conn, error) {
 }
 
 type globalFlags struct {
-	keyFile   string
-	certFile  string
-	envre     string
-	addr      string
-	verbose   bool
-	useTLS    bool
-	cn        string
-	setCookie bool
-	useHttp3  bool
+	keyFile       string
+	certFile      string
+	envre         string
+	addr          string
+	verbose       bool
+	useTLS        bool
+	tlsMaxVersion uint16
+	cn            string
+	setCookie     bool
+	useHttp3      bool
+}
+
+func parseTLSVersion(version string) (uint16, error) {
+	switch strings.ToLower(strings.TrimSpace(version)) {
+	case "1.0", "tls1.0":
+		return tls.VersionTLS10, nil
+	case "1.1", "tls1.1":
+		return tls.VersionTLS11, nil
+	case "1.2", "tls1.2":
+		return tls.VersionTLS12, nil
+	case "1.3", "tls1.3":
+		return tls.VersionTLS13, nil
+	default:
+		return 0, fmt.Errorf("unsupported TLS version: %s. Supported versions are 1.0, 1.1, 1.2, 1.3", version)
+	}
 }
 
 func parseArgs() globalFlags {
 	var flags globalFlags
+	var tlsMaxVersion string
+	var err error
 
 	flag.StringVar(&flags.keyFile, "key", "", "Certificate key file")
 	flag.StringVar(&flags.certFile, "cert", "", "Certificate file")
@@ -330,6 +348,7 @@ func parseArgs() globalFlags {
 	flag.BoolVar(&flags.verbose, "verbose", true, "verbose")
 	flag.BoolVar(&flags.verbose, "v", true, "verbose")
 	flag.BoolVar(&flags.useTLS, "tls", true, "tls")
+	flag.StringVar(&tlsMaxVersion, "tls-max", "1.3", "max tls version [1.1 1.2 1.3]")
 	flag.StringVar(&flags.cn, "cn", "localhost", "cn for the automatically generated certificate")
 	flag.BoolVar(&flags.setCookie, "set-cookie", true, "set cookie")
 	flag.StringVar(&flags.envre, "env-re", "^TLSECHO", "regexp to filter environment variables to output")
@@ -348,6 +367,12 @@ func parseArgs() globalFlags {
 	if flags.keyFile != "" && flags.cn != "localhost" {
 		usageAndExit("you can't set both cn and certificate files")
 	}
+	flags.tlsMaxVersion, err = parseTLSVersion(tlsMaxVersion)
+	if err != nil {
+		//usageAndExit("Error parsing TLS version: %v", err)
+		usageAndExit(fmt.Sprintf("Error parsing TLS version: %v", err))
+	}
+
 	if flags.useHttp3 && !flags.useTLS {
 		usageAndExit("http3 requires tls")
 	}
@@ -419,6 +444,7 @@ func startHttps(flags globalFlags, th *tlsHelloMap, helloTemplate *template.Temp
 			templateExecute(helloTemplate, chi, nil, flags.verbose)
 			return &certificate, nil
 		},
+		MaxVersion: flags.tlsMaxVersion,
 	}
 
 	if flags.useHttp3 {
