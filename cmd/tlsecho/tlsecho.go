@@ -103,6 +103,94 @@ func genX509KeyPair(cn string) (tls.Certificate, error) {
 	return certificate, err
 }
 
+// saveCertificatePEM writes an x509.Certificate to a PEM-encoded file.
+func saveCertificatePEM(cert *x509.Certificate, filename string) error {
+	permissions := os.FileMode(0644)
+	certFile, err := os.OpenFile(filename, os.O_CREATE|os.O_EXCL|os.O_WRONLY, permissions)
+	if err != nil {
+		return fmt.Errorf("failed to create certificate file %s: %w", filename, err)
+	}
+	defer certFile.Close()
+
+	pemBlock := &pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: cert.Raw,
+	}
+
+	if err := pem.Encode(certFile, pemBlock); err != nil {
+		return fmt.Errorf("failed to write certificate PEM to %s: %w", filename, err)
+	}
+	log.Printf("Certificate saved to %s\n", filename)
+	return nil
+}
+
+// savePrivateKeyPEM writes a private key to a PEM-encoded file.
+// It handles both RSA and ECDSA private keys.
+func savePrivateKeyPEM(privateKey interface{}, filename string) error {
+	permissions := os.FileMode(0644)
+	keyFile, err := os.OpenFile(filename, os.O_CREATE|os.O_EXCL|os.O_WRONLY, permissions)
+	if err != nil {
+		return fmt.Errorf("failed to create key file %s: %w", filename, err)
+	}
+	defer keyFile.Close()
+
+	var keyBytes []byte
+	var keyType string
+
+	switch pk := privateKey.(type) {
+	case *rsa.PrivateKey:
+		keyBytes, err = x509.MarshalPKCS8PrivateKey(pk)
+		keyType = "PRIVATE KEY" // For PKCS#8
+	// case *ecdsa.PrivateKey: // Uncomment if you need ECDSA support
+	// 	keyBytes, err = x509.MarshalPKCS8PrivateKey(pk)
+	// 	keyType = "PRIVATE KEY"
+	default:
+		return fmt.Errorf("unsupported private key type")
+	}
+
+	if err != nil {
+		return fmt.Errorf("failed to marshal private key to PKCS#8: %w", err)
+	}
+
+	pemBlock := &pem.Block{
+		Type:  keyType,
+		Bytes: keyBytes,
+	}
+
+	if err := pem.Encode(keyFile, pemBlock); err != nil {
+		return fmt.Errorf("failed to write private key PEM to %s: %w", filename, err)
+	}
+	log.Printf("Private key saved to %s\n", filename)
+	return nil
+}
+
+func saveX509KeyPair(tlsCert tls.Certificate, certFile, keyFile string) error {
+	var err error
+	if len(tlsCert.Certificate) > 0 {
+		leafCert, err := x509.ParseCertificate(tlsCert.Certificate[0])
+		if err != nil {
+			return fmt.Errorf("Error parsing leaf certificate for saving: %v\n", err)
+		}
+		err = saveCertificatePEM(leafCert, certFile)
+		if err != nil {
+			return err
+		}
+	} else {
+		return fmt.Errorf("No certificates found in tls.Certificate to save.")
+	}
+
+	// Save the private key
+	if tlsCert.PrivateKey != nil {
+		err = savePrivateKeyPEM(tlsCert.PrivateKey, keyFile)
+		if err != nil {
+			return err
+		}
+	} else {
+		return fmt.Errorf("No private key found in tls.Certificate to save.")
+	}
+	return nil
+}
+
 // support functions for templates
 var fmap template.FuncMap = template.FuncMap{
 	"CipherSuiteName": tls.CipherSuiteName,
@@ -320,6 +408,7 @@ type globalFlags struct {
 	cn            string
 	setCookie     bool
 	useHttp3      bool
+	writeCertKey  bool
 }
 
 func parseTLSVersion(version string) (uint16, error) {
@@ -353,31 +442,31 @@ func parseArgs() globalFlags {
 	flag.BoolVar(&flags.setCookie, "set-cookie", true, "set cookie")
 	flag.StringVar(&flags.envre, "env-re", "^TLSECHO", "regexp to filter environment variables to output")
 	flag.BoolVar(&flags.useHttp3, "http3", false, "enable http3")
+	flag.BoolVar(&flags.writeCertKey, "write-files", false, "write generated Certificate and Key files")
 
 	flag.Parse()
 	if flag.NArg() != 0 {
 		usageAndExit("Extra arguments not supported")
 	}
+
 	if (flags.keyFile == "") != (flags.certFile == "") {
-		usageAndExit("keyfile and certfile, set both or none")
+		usageAndExit("Both --cert and --key must be provided together")
 	}
 	if flags.keyFile != "" && !flags.useTLS {
-		usageAndExit("tls disabled and tls credentials set is not supported")
+		usageAndExit("Cannot combine --tls=false with --cert and --key")
 	}
-	if flags.keyFile != "" && flags.cn != "localhost" {
-		usageAndExit("you can't set both cn and certificate files")
-	}
+
 	flags.tlsMaxVersion, err = parseTLSVersion(tlsMaxVersion)
 	if err != nil {
-		//usageAndExit("Error parsing TLS version: %v", err)
 		usageAndExit(fmt.Sprintf("Error parsing TLS version: %v", err))
 	}
 
 	if flags.useHttp3 && !flags.useTLS {
-		usageAndExit("http3 requires tls")
+		usageAndExit("Cannot combine --tls=false with --http3. HTTP/3 requires tls")
 	}
 	return flags
 }
+
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 	flags := parseArgs()
@@ -426,8 +515,11 @@ func main() {
 func startHttps(flags globalFlags, th *tlsHelloMap, helloTemplate *template.Template) {
 	var certificate tls.Certificate
 	var err error
-	if flags.keyFile == "" {
+	if flags.writeCertKey || flags.keyFile == "" {
 		certificate, err = genX509KeyPair(flags.cn)
+		if err == nil && flags.writeCertKey {
+			err = saveX509KeyPair(certificate, flags.certFile, flags.keyFile)
+		}
 	} else {
 		certificate, err = tls.LoadX509KeyPair(flags.certFile, flags.keyFile)
 	}
