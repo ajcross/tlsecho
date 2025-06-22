@@ -75,7 +75,7 @@ func parseArgs() tlsecho.Config {
 
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
-	flags := parseArgs()
+	config := parseArgs()
 
-	tlsecho.Start(flags)
+	config.Start()
 }

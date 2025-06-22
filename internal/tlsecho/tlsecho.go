@@ -276,7 +276,7 @@ func parseTLSVersion(version string) (uint16, error) {
 	}
 }
 
-func Start(config Config) {
+func (config *Config) Start() {
 
 	th := makeTLSHelloMap()
 	helloTemplate := getTLSHelloTemplate()
@@ -319,7 +319,7 @@ func Start(config Config) {
 		startHttp(config)
 	}
 }
-func startHttps(config Config, th *tlsHelloMap, helloTemplate *template.Template) {
+func startHttps(config *Config, th *tlsHelloMap, helloTemplate *template.Template) {
 	var certificate tls.Certificate
 	var err error
 	if config.WriteCertKey || config.KeyFile == "" {
@@ -378,7 +378,7 @@ func startHttps(config Config, th *tlsHelloMap, helloTemplate *template.Template
 	log.Printf("HTTP server listening on %s", config.Addr)
 	log.Fatal(httpServer.ServeTLS(ml, "", ""))
 }
-func startHttp(config Config) {
+func startHttp(config *Config) {
 	httpServer := &http.Server{
 		Addr: config.Addr,
 	}
